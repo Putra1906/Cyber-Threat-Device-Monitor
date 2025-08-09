@@ -92,3 +92,15 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Untuk animasi garis di peta Leaflet */
+@keyframes ant-path {
+  to {
+    stroke-dashoffset: -25;
+  }
+}
+
+.animated-line {
+  stroke-dasharray: 8, 8;
+  animation: ant-path 1s linear infinite;
+}
