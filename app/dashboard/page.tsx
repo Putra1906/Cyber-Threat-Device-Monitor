@@ -8,8 +8,7 @@ import { toast } from "sonner"
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { Package, CheckCircle2, XCircle, TriangleAlert, Upload, Link, Users } from 'lucide-react';
 
-
-// Dynamically import the Map component to avoid SSR issues with Leaflet
+// Dynamic import untuk peta tetap sama
 const DeviceMap = dynamic(() => import("@/components/device-map"), {
   ssr: false,
   loading: () => (
@@ -33,18 +32,8 @@ interface Device {
   longitude?: number
 }
 
-// Data type for Pie Chart
-type PieChartData = {
-  name: string;
-  value: number;
-};
-
-const COLORS = {
-  Allowed: '#22c55e', // green-500
-  Blocked: '#ef4444', // red-500
-  Maintenance: '#f59e0b', // amber-500
-};
-
+type PieChartData = { name: string; value: number; };
+const COLORS = { Allowed: '#22c55e', Blocked: '#ef4444', Maintenance: '#f59e0b' };
 
 export default function Dashboard() {
   const [devices, setDevices] = useState<Device[]>([])
@@ -55,56 +44,46 @@ export default function Dashboard() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-
   useEffect(() => {
     const isAuthenticated = localStorage.getItem("isAuthenticated")
     const userData = localStorage.getItem("user")
-
     if (!isAuthenticated) {
-      router.push("/")
-      return
+      router.push("/");
+      return;
     }
+    if (userData) setUser(JSON.parse(userData));
+    fetchDevices();
+  }, [router]);
 
-    if (userData) {
-      setUser(JSON.parse(userData))
-    }
-
-    fetchDevices()
-  }, [router])
-
-  const fetchDevices = async (keyword = "") => {
+  const fetchDevices = async (keyword: string = searchKeyword) => { // Menggunakan searchKeyword dari state sebagai default
     if (devices.length === 0) setIsLoading(true);
     try {
-      const url = keyword ? `/api/devices?q=${encodeURIComponent(keyword)}` : "/api/devices"
-      const response = await fetch(url)
-      const data = await response.json()
-      setDevices(data.devices || [])
+      const url = keyword ? `/api/devices?q=${encodeURIComponent(keyword)}` : "/api/devices";
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.success) {
+        setDevices(data.devices || []);
+      } else {
+        toast.error("Gagal mengambil data perangkat.");
+      }
     } catch (error) {
-      console.error("Gagal mengambil data perangkat:", error)
-      toast.error("Gagal mengambil data perangkat.")
+      console.error("Gagal mengambil data perangkat:", error);
+      toast.error("Gagal mengambil data perangkat.");
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
   
   const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     setIsImporting(true);
     const toastId = toast.loading("Mengimpor perangkat dari Excel...");
-
     const formData = new FormData();
     formData.append("file", file);
-
     try {
-      const response = await fetch("/api/devices/import", {
-        method: "POST",
-        body: formData,
-      });
-
+      const response = await fetch("/api/devices/import", { method: "POST", body: formData });
       const result = await response.json();
-
       if (response.ok && result.success) {
         toast.success(`Berhasil mengimpor ${result.importedCount} perangkat baru!`, { id: toastId });
         fetchDevices();
@@ -120,13 +99,17 @@ export default function Dashboard() {
   };
 
   const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    fetchDevices(searchKeyword)
+    e.preventDefault();
+    fetchDevices(searchKeyword);
   }
   
   const handleDelete = async (id: number) => {
+    // Mencegah penghapusan Core Router
+    if (id === 1) {
+      toast.error("Core Router tidak dapat dihapus.");
+      return;
+    }
     if (!confirm("Apakah Anda yakin ingin menghapus perangkat ini?")) return;
-
     try {
       const response = await fetch(`/api/devices/${id}`, { method: "DELETE" });
       if (response.ok) {
@@ -142,9 +125,9 @@ export default function Dashboard() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem("isAuthenticated")
-    localStorage.removeItem("user")
-    router.push("/")
+    localStorage.removeItem("isAuthenticated");
+    localStorage.removeItem("user");
+    router.push("/");
   }
   
   const getStatusBadge = (status: string) => {
@@ -157,7 +140,6 @@ export default function Dashboard() {
     }
   };
   
-  // Prepare data for stats and chart
   const stats = {
       total: devices.length,
       allowed: devices.filter((d) => d.status.toLowerCase() === "allowed").length,
@@ -170,7 +152,6 @@ export default function Dashboard() {
       { name: 'Blocked', value: stats.blocked },
       { name: 'Maintenance', value: stats.maintenance },
   ].filter(item => item.value > 0);
-
 
   if (isLoading) {
     return (
@@ -247,10 +228,17 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-
+        
+        {/* PERBAIKAN: Memastikan peta tidak error jika tidak ada perangkat */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Peta Lokasi Perangkat</h3>
-          <DeviceMap devices={devices} />
+          {devices.length > 0 ? (
+            <DeviceMap devices={devices} />
+          ) : (
+            <div className="h-96 bg-gray-100 rounded-lg flex items-center justify-center text-gray-500">
+              Tidak ada data perangkat dengan lokasi untuk ditampilkan di peta.
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -260,7 +248,6 @@ export default function Dashboard() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Device</th>
                   <th className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">IP Address</th>
-                  {/* KOLOM BARU DITAMBAHKAN DI SINI */}
                   <th className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Terkoneksi Ke</th>
                   <th className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Location</th>
                   <th className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Status</th>
@@ -273,7 +260,6 @@ export default function Dashboard() {
                   <tr key={device.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{device.name}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{device.ip_address}</td>
-                    {/* KONTEN KOLOM BARU DITAMBAHKAN DI SINI */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {device.id === 1 ? (
                         <div className="flex items-center gap-2 font-medium text-blue-600">
@@ -289,11 +275,11 @@ export default function Dashboard() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{device.location}</td>
                     <td className="px-6 py-4 whitespace-nowrap"><span className={getStatusBadge(device.status)}>{device.status}</span></td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{device.detected_at}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(device.detected_at).toLocaleString('id-ID')}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-4 items-center">
                         <button onClick={() => router.push(`/dashboard/edit/${device.id}`)} className="text-blue-600 hover:text-blue-900">Edit</button>
-                        <button onClick={() => handleDelete(device.id)} className="text-red-600 hover:text-red-900">Hapus</button>
+                        <button onClick={() => handleDelete(device.id)} className="text-red-600 hover:text-red-900" disabled={device.id === 1}>Hapus</button>
                       </div>
                     </td>
                   </tr>
