@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { mockDatabase } from "@/lib/mock-database";
+import { supabase } from "@/lib/supabaseClient";
 import * as xlsx from "xlsx";
 
 export async function POST(request: NextRequest) {
@@ -15,54 +15,38 @@ export async function POST(request: NextRequest) {
     const workbook = xlsx.read(buffer, { type: "buffer" });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    
-    // Convert sheet to JSON with expected headers
+
     const jsonData: any[] = xlsx.utils.sheet_to_json(worksheet);
 
-    let importedCount = 0;
-    const errors: string[] = [];
-    const existingIps = new Set(mockDatabase.getAllDevices().map(d => d.ip_address));
+    const devicesToInsert = jsonData.map(row => {
+      // Validasi dan pembersihan data di sini
+      const lat = row.latitude ? parseFloat(row.latitude) : null;
+      const lng = row.longitude ? parseFloat(row.longitude) : null;
 
-    for (const row of jsonData) {
-      // Destructure all possible columns
-      const { name, ip_address, location, status, latitude, longitude } = row;
+      return {
+        name: row.name,
+        ip_address: row.ip_address,
+        location: row.location,
+        status: row.status || 'Allowed',
+        latitude: !isNaN(lat!) ? lat : null,
+        longitude: !isNaN(lng!) ? lng : null,
+      };
+    }).filter(d => d.name && d.ip_address); // Filter baris yang tidak valid
 
-      if (!name || !ip_address) {
-        errors.push(`Baris dilewati: 'name' dan 'ip_address' wajib diisi.`);
-        continue;
-      }
-      
-      if(existingIps.has(ip_address)) {
-        errors.push(`Baris dilewati: IP Address ${ip_address} sudah ada.`);
-        continue;
-      }
-      
-      // --- LOGIKA BARU UNTUK KOORDINAT ---
-      // Convert to number, ensure they are valid, or set to undefined
-      const lat = latitude ? parseFloat(latitude) : undefined;
-      const lng = longitude ? parseFloat(longitude) : undefined;
-      
-      const hasValidCoords = !isNaN(lat!) && !isNaN(lng!);
-
-      // Add device to our mock database
-      mockDatabase.createDevice({
-        name,
-        ip_address,
-        location: location || "",
-        status: status || "Allowed",
-        latitude: hasValidCoords ? lat : undefined,
-        longitude: hasValidCoords ? lng : undefined,
-      });
-      existingIps.add(ip_address);
-      importedCount++;
+    if(devicesToInsert.length === 0) {
+        return NextResponse.json({ error: "Tidak ada data valid untuk diimpor." }, { status: 400 });
     }
 
-    return NextResponse.json({
-      success: true,
-      message: `Impor selesai. ${importedCount} perangkat ditambahkan.`,
-      importedCount,
-      errors,
-    });
+    const { error, count } = await supabase.from("devices").insert(devicesToInsert);
+
+    if (error) {
+        if (error.code === '23505') {
+             return NextResponse.json({ error: "Gagal mengimpor: Terdapat duplikasi IP address di dalam file atau dengan data yang sudah ada." }, { status: 400 });
+        }
+        throw error;
+    }
+
+    return NextResponse.json({ success: true, importedCount: count || 0 });
 
   } catch (error) {
     console.error("Error importing from Excel:", error);

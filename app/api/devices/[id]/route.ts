@@ -1,115 +1,59 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { mockDatabase } from "@/lib/mock-database"
+import { type NextRequest, NextResponse } from "next/server";
+import { supabase } from "@/lib/supabaseClient";
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+// Tipe untuk parameter URL
+interface RouteContext {
+  params: {
+    id: string;
+  };
+}
+
+// FUNGSI GET (Mengambil satu perangkat)
+export async function GET(request: NextRequest, { params }: RouteContext) {
+  const { id } = params;
   try {
-    const deviceId = Number.parseInt(params.id)
-
-    if (isNaN(deviceId)) {
-      return NextResponse.json({ error: "Invalid device ID" }, { status: 400 })
+    const { data, error } = await supabase.from("devices").select("*").eq("id", id).single();
+    if (error) {
+      // Jika tidak ditemukan, Supabase akan memberikan error
+      return NextResponse.json({ error: `Perangkat dengan ID ${id} tidak ditemukan.` }, { status: 404 });
     }
-
-    const device = mockDatabase.getDeviceById(deviceId)
-
-    if (!device) {
-      return NextResponse.json({ error: "Device not found" }, { status: 404 })
-    }
-
-    return NextResponse.json({
-      success: true,
-      device,
-    })
-  } catch (error) {
-    console.error("Error fetching device:", error)
-    return NextResponse.json({ error: "Failed to fetch device" }, { status: 500 })
+    return NextResponse.json({ success: true, device: data });
+  } catch (e) {
+    const error = e as Error;
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+// FUNGSI PUT (Memperbarui perangkat)
+export async function PUT(request: NextRequest, { params }: RouteContext) {
+  const { id } = params;
   try {
-    const deviceId = Number.parseInt(params.id)
+    const updateData = await request.json();
+    const { data, error } = await supabase.from("devices").update(updateData).eq("id", id).select().single();
 
-    if (isNaN(deviceId)) {
-      return NextResponse.json({ error: "Invalid device ID" }, { status: 400 })
-    }
-
-    const updateData = await request.json()
-
-    // Validate required fields if they're being updated
-    if (updateData.name !== undefined && !updateData.name.trim()) {
-      return NextResponse.json({ error: "Device name cannot be empty" }, { status: 400 })
-    }
-
-    if (updateData.ip_address !== undefined && !updateData.ip_address.trim()) {
-      return NextResponse.json({ error: "IP address cannot be empty" }, { status: 400 })
-    }
-
-    // Check for duplicate IP address (excluding current device)
-    if (updateData.ip_address) {
-      const existingDevices = mockDatabase.getAllDevices()
-      const duplicateIP = existingDevices.find((d) => d.ip_address === updateData.ip_address && d.id !== deviceId)
-
-      if (duplicateIP) {
-        return NextResponse.json(
-          {
-            error: "A device with this IP address already exists",
-          },
-          { status: 400 },
-        )
+    if (error) {
+      if (error.code === '23505') { // Error untuk duplikasi data unik (misal: IP Address)
+        return NextResponse.json({ error: "Alamat IP ini sudah digunakan oleh perangkat lain." }, { status: 400 });
       }
+      throw error;
     }
-
-    // Prepare update data
-    const updatePayload: any = {}
-
-    if (updateData.name !== undefined) updatePayload.name = updateData.name
-    if (updateData.ip_address !== undefined) updatePayload.ip_address = updateData.ip_address
-    if (updateData.location !== undefined) updatePayload.location = updateData.location
-    if (updateData.status !== undefined) updatePayload.status = updateData.status
-    if (updateData.latitude !== undefined) {
-      updatePayload.latitude = updateData.latitude ? Number.parseFloat(updateData.latitude) : undefined
-    }
-    if (updateData.longitude !== undefined) {
-      updatePayload.longitude = updateData.longitude ? Number.parseFloat(updateData.longitude) : undefined
-    }
-
-    const updatedDevice = mockDatabase.updateDevice(deviceId, updatePayload)
-
-    if (!updatedDevice) {
-      return NextResponse.json({ error: "Device not found" }, { status: 404 })
-    }
-
-    return NextResponse.json({
-      success: true,
-      device: updatedDevice,
-      message: "Device updated successfully",
-    })
-  } catch (error) {
-    console.error("Error updating device:", error)
-    return NextResponse.json({ error: "Failed to update device" }, { status: 500 })
+    
+    return NextResponse.json({ success: true, device: data });
+  } catch (e) {
+    const error = e as Error;
+    return NextResponse.json({ error: `Gagal memperbarui perangkat: ${error.message}` }, { status: 500 });
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+// FUNGSI DELETE (Menghapus perangkat)
+export async function DELETE(request: NextRequest, { params }: RouteContext) {
+  const { id } = params;
   try {
-    const deviceId = Number.parseInt(params.id)
-
-    if (isNaN(deviceId)) {
-      return NextResponse.json({ error: "Invalid device ID" }, { status: 400 })
-    }
-
-    const deleted = mockDatabase.deleteDevice(deviceId)
-
-    if (!deleted) {
-      return NextResponse.json({ error: "Device not found" }, { status: 404 })
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: "Device deleted successfully",
-    })
-  } catch (error) {
-    console.error("Error deleting device:", error)
-    return NextResponse.json({ error: "Failed to delete device" }, { status: 500 })
+    const { error } = await supabase.from("devices").delete().eq("id", id);
+    if (error) throw error;
+    return NextResponse.json({ success: true, message: "Perangkat berhasil dihapus." });
+  } catch (e) {
+    const error = e as Error;
+    return NextResponse.json({ error: `Gagal menghapus perangkat: ${error.message}` }, { status: 500 });
   }
 }

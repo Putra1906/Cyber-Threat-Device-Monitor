@@ -1,70 +1,49 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { mockDatabase } from "@/lib/mock-database"
+import { type NextRequest, NextResponse } from "next/server";
+import { supabase } from "@/lib/supabaseClient";
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const keyword = searchParams.get("q") || ""
+    const { searchParams } = new URL(request.url);
+    const keyword = searchParams.get("q") || "";
 
-    const devices = keyword ? mockDatabase.searchDevices(keyword) : mockDatabase.getAllDevices()
+    let query = supabase.from("devices").select("*").order("id", { ascending: true });
 
-    return NextResponse.json({
-      success: true,
-      devices,
-      total: devices.length,
-    })
+    if (keyword) {
+      query = query.or(`name.ilike.%${keyword}%,ip_address.ilike.%${keyword}%,location.ilike.%${keyword}%`);
+    }
+
+    const { data: devices, error } = await query;
+
+    if (error) throw error;
+
+    return NextResponse.json({ success: true, devices });
   } catch (error) {
-    console.error("Error fetching devices:", error)
-    return NextResponse.json({ error: "Failed to fetch devices" }, { status: 500 })
+    console.error("Error fetching devices:", error);
+    return NextResponse.json({ error: "Failed to fetch devices" }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const deviceData = await request.json()
+    const deviceData = await request.json();
 
-    // Validate required fields
-    if (!deviceData.name || !deviceData.ip_address) {
-      return NextResponse.json(
-        {
-          error: "Device name and IP address are required",
-        },
-        { status: 400 },
-      )
+    const { data, error } = await supabase
+      .from("devices")
+      .insert([deviceData])
+      .select()
+      .single();
+
+    if (error) {
+        // Handle duplicate IP error
+        if (error.code === '23505') {
+            return NextResponse.json({ error: "A device with this IP address already exists" }, { status: 400 });
+        }
+        throw error;
     }
 
-    // Check for duplicate IP address
-    const existingDevices = mockDatabase.getAllDevices()
-    const duplicateIP = existingDevices.find((d) => d.ip_address === deviceData.ip_address)
-
-    if (duplicateIP) {
-      return NextResponse.json(
-        {
-          error: "A device with this IP address already exists",
-        },
-        { status: 400 },
-      )
-    }
-
-    const newDevice = mockDatabase.createDevice({
-      name: deviceData.name,
-      ip_address: deviceData.ip_address,
-      location: deviceData.location || "",
-      status: deviceData.status || "Allowed",
-      latitude: deviceData.latitude ? Number.parseFloat(deviceData.latitude) : undefined,
-      longitude: deviceData.longitude ? Number.parseFloat(deviceData.longitude) : undefined,
-    })
-
-    return NextResponse.json(
-      {
-        success: true,
-        device: newDevice,
-        message: "Device created successfully",
-      },
-      { status: 201 },
-    )
+    return NextResponse.json({ success: true, device: data }, { status: 201 });
   } catch (error) {
-    console.error("Error creating device:", error)
-    return NextResponse.json({ error: "Failed to create device" }, { status: 500 })
+    console.error("Error creating device:", error);
+    return NextResponse.json({ error: "Failed to create device" }, { status: 500 });
   }
 }
