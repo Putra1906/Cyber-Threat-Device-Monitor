@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react"
 import 'leaflet/dist/leaflet.css';
 import './map-animations.css'; 
 
-// Cek apakah 'window' ada (hanya berjalan di sisi client)
 const IS_BROWSER = typeof window !== "undefined";
 
 interface Device {
@@ -25,17 +24,14 @@ interface DeviceMapProps {
 export default function DeviceMap({ devices }: DeviceMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const layerGroupRef = useRef<any>(null); // Ref untuk layer group
 
-  // --- PERBAIKAN UTAMA ADA DI SINI ---
   useEffect(() => {
-    // Jangan lakukan apapun jika tidak di browser atau jika peta sudah ada
     if (!IS_BROWSER || !mapRef.current || mapInstanceRef.current) {
       return;
     }
 
-    // Import Leaflet secara dinamis
     import("leaflet").then(L => {
-      // Fix icon path issue
       delete (L.Icon.Default.prototype as any)._getIconUrl;
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -43,7 +39,6 @@ export default function DeviceMap({ devices }: DeviceMapProps) {
         shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
       });
 
-      // Inisialisasi peta
       mapInstanceRef.current = L.map(mapRef.current!, {
         center: [-6.9381, 107.6611],
         zoom: 18,
@@ -52,24 +47,28 @@ export default function DeviceMap({ devices }: DeviceMapProps) {
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }).addTo(mapInstanceRef.current);
+      
+      // Inisialisasi layer group sekali saja
+      layerGroupRef.current = L.layerGroup().addTo(mapInstanceRef.current);
     });
 
-    // Fungsi cleanup: akan berjalan saat komponen dibongkar
     return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
     };
-  }, []); // Dependency array kosong memastikan ini hanya berjalan sekali
+  }, []);
 
   useEffect(() => {
-    // useEffect untuk update marker, tidak ada perubahan di sini
-    if (!IS_BROWSER || !mapInstanceRef.current) return;
+    if (!IS_BROWSER || !mapInstanceRef.current || !layerGroupRef.current) return;
 
     const updateMapLayers = async () => {
       const L = (await import("leaflet"));
-      const layerGroup = L.layerGroup().addTo(mapInstanceRef.current);
+      const layerGroup = layerGroupRef.current;
+
+      // Hapus layer lama sebelum menambahkan yang baru
+      layerGroup.clearLayers();
       
       const devicesWithCoords = devices.filter(d => d.latitude != null && d.longitude != null);
       if (devicesWithCoords.length === 0) return;
@@ -81,12 +80,12 @@ export default function DeviceMap({ devices }: DeviceMapProps) {
         const deviceLatLng = L.latLng(device.latitude!, device.longitude!);
         let customIcon;
 
-        if (device.id === 1) {
+        if (device.id === 1) { // Core Router
           customIcon = L.divIcon({
             html: `<div class="hub-marker-wrapper"><div class="hub-marker"></div></div>`,
             className: "hub-marker-container", iconSize: [32, 32], iconAnchor: [16, 16],
           });
-        } else {
+        } else { // Perangkat Lain
           let iconColor = "#3b82f6";
           if (device.status.toLowerCase() === "allowed") iconColor = "#10b981";
           else if (device.status.toLowerCase() === "blocked") iconColor = "#ef4444";
@@ -103,8 +102,19 @@ export default function DeviceMap({ devices }: DeviceMapProps) {
           .addTo(layerGroup);
           
         if (centralLatLng && device.id !== centralDevice?.id) {
+          // --- LOGIKA WARNA GARIS BARU ---
+          let lineColor = '#22c55e'; // Default Hijau (Allowed)
+          if (device.status.toLowerCase() === 'blocked') {
+            lineColor = '#ef4444'; // Merah
+          } else if (device.status.toLowerCase() === 'maintenance') {
+            lineColor = '#f59e0b'; // Kuning
+          }
+
           L.polyline([centralLatLng, deviceLatLng], {
-              color: '#22c55e', weight: 3, opacity: 0.9, className: 'animated-line',
+              color: lineColor, // Gunakan warna dinamis
+              weight: 3,
+              opacity: 0.9,
+              className: 'animated-line',
           }).addTo(layerGroup);
         }
       });
@@ -113,13 +123,6 @@ export default function DeviceMap({ devices }: DeviceMapProps) {
       if (bounds.isValid()) {
         mapInstanceRef.current.fitBounds(bounds.pad(0.5));
       }
-
-       // Cleanup untuk layer group
-       return () => {
-           if(mapInstanceRef.current && layerGroup) {
-               mapInstanceRef.current.removeLayer(layerGroup);
-           }
-       }
     };
 
     updateMapLayers();

@@ -11,7 +11,7 @@
 }
 
 .hub-marker {
-    background-color: #3b82f6; /* Warna BIRU */
+    background-color: #3b82f6; /* Warna diubah menjadi BIRU */
     width: 28px;
     height: 28px;
     border-radius: 50%;
@@ -22,7 +22,7 @@
 @keyframes pulsate-hub {
     0% {
         transform: scale(0.7);
-        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); /* Warna pulse diubah menjadi BIRU */
     }
     70% {
         transform: scale(1);
@@ -44,7 +44,7 @@
 }
 
 
-/* Styling untuk GARIS ANIMASI (Versi CSS Murni) */
+/* Styling untuk GARIS ANIMASI */
 .animated-line {
   stroke-dasharray: 10, 10;
   animation: ant-path-flow 1s linear infinite;
